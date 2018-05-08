@@ -184,13 +184,7 @@ class ConvertSecondaryConstructorToPrimaryIntention : SelfTargetingRangeIntentio
         }
 
         if ((initializer.body as? KtBlockExpression)?.statements?.isNotEmpty() == true) {
-            val hasPropertyAfterInitializer = element.parent.children.takeLastWhile { it !== element }.any {
-                it is KtProperty && ReferencesSearch.search(it, initializer.useScope).findFirst() != null
-            }
-            if (hasPropertyAfterInitializer)
-                klass.addDeclaration(initializer)
-            else
-                klass.addDeclarationAfter(initializer, element)
+            klass.addDeclarationAfter(initializer, element)
         }
 
         element.delete()
