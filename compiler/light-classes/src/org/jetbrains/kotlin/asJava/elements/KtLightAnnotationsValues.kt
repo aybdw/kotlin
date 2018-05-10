@@ -8,19 +8,16 @@ package org.jetbrains.kotlin.asJava.elements
 import com.intellij.psi.*
 import com.intellij.psi.impl.ResolveScopeManager
 import org.jetbrains.kotlin.psi.KtElement
+import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtLiteralStringTemplateEntry
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 
 class KtLightPsiArrayInitializerMemberValue(
     val ktOrigin: KtElement,
     val lightParent: PsiElement,
-    val arguments: List<KtStringTemplateExpression> // TODO: not only strings of course
+    val arguments: List<PsiAnnotationMemberValue>
 ) : PsiElement by ktOrigin, PsiArrayInitializerMemberValue {
-    override fun getInitializers(): Array<PsiAnnotationMemberValue> {
-        return arguments
-            .map { KtLightPsiLiteral(it, this) }
-            .toTypedArray()
-    }
+    override fun getInitializers(): Array<PsiAnnotationMemberValue> = arguments.toTypedArray()
 
     override fun getParent(): PsiElement = lightParent
 
@@ -28,11 +25,14 @@ class KtLightPsiArrayInitializerMemberValue(
 }
 
 class KtLightPsiLiteral(
-    val ktOrigin: KtStringTemplateExpression,
+    val ktOrigin: KtExpression,
     val lightParent: PsiElement
 ) : PsiElement by ktOrigin, PsiLiteralExpression {
-    override fun getValue(): Any? {
-        return (ktOrigin.entries.single() as KtLiteralStringTemplateEntry).text
+
+    //TODO: maybe some evaluator?
+    override fun getValue(): Any? = when (ktOrigin) {
+        is KtStringTemplateExpression -> (ktOrigin.entries.single() as KtLiteralStringTemplateEntry).text // TODO: maybe not single
+        else -> ktOrigin.text
     }
 
     override fun getType(): PsiType? {

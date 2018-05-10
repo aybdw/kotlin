@@ -34,6 +34,7 @@ import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getNonStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.isExtensionDeclaration
+import org.jetbrains.kotlin.utils.addToStdlib.sequenceOfLazyValues
 
 fun KtClassOrObject.toLightClass(): KtLightClass? = KotlinAsJavaSupport.getInstance(project).getLightClass(this)
 
@@ -185,7 +186,7 @@ private fun PsiAnnotation.withNestedAnnotations(): Sequence<PsiAnnotation> {
             is PsiAnnotation -> memberValue.withNestedAnnotations()
             else -> emptySequence()
         }
-    return sequenceOf(this) + parameterList.attributes.asSequence().flatMap { handleValue(it.value) }
+    return sequenceOf(this) + sequenceOfLazyValues({ parameterList.attributes.asSequence().flatMap { handleValue(it.value) } }).flatten()
 }
 
 fun propertyNameByAccessor(name: String, accessor: KtLightMethod): String? {
