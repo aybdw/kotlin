@@ -7,17 +7,14 @@ package org.jetbrains.kotlin.asJava.elements
 
 import com.intellij.psi.*
 import com.intellij.psi.impl.ResolveScopeManager
-import org.jetbrains.kotlin.psi.KtElement
-import org.jetbrains.kotlin.psi.KtExpression
-import org.jetbrains.kotlin.psi.KtLiteralStringTemplateEntry
-import org.jetbrains.kotlin.psi.KtStringTemplateExpression
+import org.jetbrains.kotlin.psi.*
 
 class KtLightPsiArrayInitializerMemberValue(
     val ktOrigin: KtElement,
     val lightParent: PsiElement,
-    val arguments: List<PsiAnnotationMemberValue>
+    val arguments: (KtLightPsiArrayInitializerMemberValue) -> List<PsiAnnotationMemberValue>
 ) : PsiElement by ktOrigin, PsiArrayInitializerMemberValue {
-    override fun getInitializers(): Array<PsiAnnotationMemberValue> = arguments.toTypedArray()
+    override fun getInitializers(): Array<PsiAnnotationMemberValue> = arguments(this).toTypedArray()
 
     override fun getParent(): PsiElement = lightParent
 
@@ -44,4 +41,27 @@ class KtLightPsiLiteral(
     override fun getParent(): PsiElement = lightParent
 
     override fun isPhysical(): Boolean = false
+}
+
+class KtLightPsiNameValuePair private constructor(ktOrigin: KtElement, val valueArgument: KtValueArgument) : PsiElement by ktOrigin,
+    PsiNameValuePair {
+
+    constructor(valueArgument: KtValueArgument) : this(valueArgument.asElement(), valueArgument)
+
+
+    override fun setValue(newValue: PsiAnnotationMemberValue): PsiAnnotationMemberValue {
+        TODO("not implemented")
+    }
+
+    override fun getNameIdentifier(): PsiIdentifier? {
+        TODO("not implemented")
+    }
+
+    override fun getName(): String? = valueArgument.name
+
+    override fun getValue(): PsiAnnotationMemberValue? =
+        valueArgument.getArgumentExpression()?.let { ktExpressionAsAnnotationMember(this, it) }
+
+    override fun getLiteralValue(): String? = (getValue() as? PsiLiteralExpression)?.value?.toString()
+
 }
