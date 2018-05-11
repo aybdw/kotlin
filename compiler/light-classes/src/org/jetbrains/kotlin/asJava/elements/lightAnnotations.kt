@@ -33,11 +33,13 @@ import org.jetbrains.kotlin.descriptors.ClassConstructorDescriptor
 import org.jetbrains.kotlin.descriptors.ValueParameterDescriptor
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.load.java.descriptors.JavaClassConstructorDescriptor
+import org.jetbrains.kotlin.load.java.descriptors.getDefaultValueFromAnnotation
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getNonStrictParentOfType
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
 import org.jetbrains.kotlin.resolve.calls.model.*
+import org.jetbrains.kotlin.resolve.descriptorUtil.declaresOrInheritsDefaultValue
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameUnsafe
 import org.jetbrains.kotlin.resolve.source.getPsi
 import org.jetbrains.kotlin.types.TypeUtils
@@ -267,28 +269,36 @@ class KtLightAnnotationForSourceEntry(
         getMemberValueAsCallArgument(value, kotlinOrigin)
     })
 
-    override fun findAttributeValue(name: String?) =
-        findDeclaredAttributeValue(name) ?: clsDelegate.findAttributeValue(name)?.let { wrapAnnotationValue(it) }
+    override fun findAttributeValue(name: String?) = getAttributeValue(name, true)
 
+    override fun findDeclaredAttributeValue(name: String?): PsiAnnotationMemberValue? = getAttributeValue(name, false)
 
-    override fun findDeclaredAttributeValue(name: String?): PsiAnnotationMemberValue? {
+    private fun getAttributeValue(name: String?, useDefault: Boolean): PsiAnnotationMemberValue? {
         val name = name ?: run { throw Exception("null value call") }
-//        kotlinOrigin.getResolvedCall()!!.valueArguments.let {
-//            println("attrubites for $name :" + it.entries.joinToString { it.key.name.asString() + " ->" + it.value.arguments.joinToString { it.getArgumentExpression()?.javaClass.toString() } })
-//        }
 
         val resolvedCall = kotlinOrigin.getResolvedCall()!!
-        val callEntry = resolvedCall.valueArguments.entries.find { (param, _) -> param.name.asString() == name }!!
+        val callEntry = resolvedCall.valueArguments.entries.find { (param, _) -> param.name.asString() == name } ?: return null
 
         psiAnnotationMemberValue(this, callEntry.value.arguments, callEntry)?.let {
             return it
         }
+        if (useDefault && callEntry.key.declaresOrInheritsDefaultValue()) {
+            println("default value = " + callEntry.key.getDefaultValueFromAnnotation())
+            val psiElement = callEntry.key.source.getPsi()
+            when (psiElement) {
+                is KtParameter ->
+                    return psiElement.defaultValue?.let { ktExpressionAsAnnotationMember(this, it) }
+                is PsiAnnotationMethod ->
+                    return psiElement.defaultValue
+            }
+
+        }
+        println("default value1 = " + callEntry.key.getDefaultValueFromAnnotation())
         val argument = callEntry.value.arguments.firstOrNull()?.getArgumentExpression()
         println("cant process $argument of type ${argument?.javaClass} [${kotlinOrigin.text.lineSequence().firstOrNull()}]")
 
-        return clsDelegate.findDeclaredAttributeValue(name)?.let { wrapAnnotationValue(it) }
+        return null
     }
-
 
 
     override fun getNameReferenceElement(): PsiJavaCodeReferenceElement? {
