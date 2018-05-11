@@ -16,16 +16,12 @@
 
 package org.jetbrains.kotlin.idea
 
-import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiConstantEvaluationHelper
 import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiExpression
 import com.intellij.psi.impl.ConstantExpressionEvaluator
-import org.jetbrains.kotlin.asJava.elements.KtLightAnnotationForSourceEntry
 import org.jetbrains.kotlin.asJava.elements.KtLightPsiLiteral
 import org.jetbrains.kotlin.idea.caches.resolve.getResolutionFacade
 import org.jetbrains.kotlin.idea.project.languageVersionSettings
-import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.resolve.DelegatingBindingTrace
 import org.jetbrains.kotlin.resolve.constants.ArrayValue
 import org.jetbrains.kotlin.resolve.constants.ConstantValue
@@ -51,30 +47,19 @@ class KotlinLightConstantExpressionEvaluator : ConstantExpressionEvaluator {
             auxEvaluator: PsiConstantEvaluationHelper.AuxEvaluator?
     ): Any? {
         val expressionToCompute = when (expression) {
-            is KtLightAnnotationForSourceEntry.LightExpressionValue<*> -> expression.originalExpression
             is KtLightPsiLiteral -> expression.ktOrigin
             else -> null
         } ?: return null
-        return when (expressionToCompute) {
-            is KtExpression -> {
-                val resolutionFacade = expressionToCompute.getResolutionFacade()
-                val evaluator = FrontendConstantExpressionEvaluator(
-                    resolutionFacade.moduleDescriptor, expressionToCompute.languageVersionSettings
-                )
-                val evaluatorTrace = DelegatingBindingTrace(resolutionFacade.analyze(expressionToCompute), "Evaluating annotation argument")
+        return run {
+            val resolutionFacade = expressionToCompute.getResolutionFacade()
+            val evaluator = FrontendConstantExpressionEvaluator(
+                resolutionFacade.moduleDescriptor, expressionToCompute.languageVersionSettings
+            )
+            val evaluatorTrace = DelegatingBindingTrace(resolutionFacade.analyze(expressionToCompute), "Evaluating annotation argument")
 
-                val constant = evaluator.evaluateExpression(expressionToCompute, evaluatorTrace) ?: return null
-                if (constant.isError) return null
-                evalConstantValue(constant.toConstantValue(TypeUtils.NO_EXPECTED_TYPE))
-            }
-
-            is PsiExpression -> {
-                JavaPsiFacade.getInstance(expressionToCompute.project)
-                        .constantEvaluationHelper
-                        .computeExpression(expressionToCompute, throwExceptionOnOverflow, auxEvaluator)
-            }
-
-            else -> null
+            val constant = evaluator.evaluateExpression(expressionToCompute, evaluatorTrace) ?: return null
+            if (constant.isError) return null
+            evalConstantValue(constant.toConstantValue(TypeUtils.NO_EXPECTED_TYPE))
         }
     }
 }

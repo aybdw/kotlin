@@ -334,13 +334,13 @@ internal object KotlinConverter {
 
             is KtExpression -> KotlinConverter.convertExpression(element, givenParent, requiredType)
             is KtLambdaArgument -> element.getLambdaExpression()?.let { KotlinConverter.convertExpression(it, givenParent, requiredType) }
-            is KtLightAnnotationForSourceEntry.LightExpressionValue<*> -> {
-                val expression = element.originalExpression
-                when (expression) {
-                    is KtExpression -> KotlinConverter.convertExpression(expression, givenParent, requiredType)
-                    else -> el<UExpression> { UastEmptyExpression }
-                }
-            }
+//            is KtLightAnnotationForSourceEntry.LightExpressionValue<*> -> {
+//                val expression = element.originalExpression
+//                when (expression) {
+//                    is KtExpression -> KotlinConverter.convertExpression(expression, givenParent, requiredType)
+//                    else -> el<UExpression> { UastEmptyExpression }
+//                }
+//            }
             is KtLiteralStringTemplateEntry, is KtEscapeStringTemplateEntry -> el<ULiteralExpression>(build(::KotlinStringULiteralExpression))
             is KtStringTemplateEntry -> element.expression?.let { convertExpression(it, givenParent, requiredType) } ?: expr<UExpression> { UastEmptyExpression }
             is KtWhenEntry -> el<USwitchClauseExpressionWithBody>(build(::KotlinUSwitchEntry))

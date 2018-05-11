@@ -43,7 +43,7 @@ class KtLightPsiLiteral(
     override fun isPhysical(): Boolean = false
 }
 
-class KtLightPsiNameValuePair private constructor(ktOrigin: KtElement, val valueArgument: KtValueArgument) : PsiElement by ktOrigin,
+class KtLightPsiNameValuePair private constructor(val ktOrigin: KtElement, val valueArgument: KtValueArgument) : PsiElement by ktOrigin,
     PsiNameValuePair {
 
     constructor(valueArgument: KtValueArgument) : this(valueArgument.asElement(), valueArgument)
