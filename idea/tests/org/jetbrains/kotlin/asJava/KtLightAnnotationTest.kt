@@ -120,7 +120,7 @@ class KtLightAnnotationTest : KotlinLightCodeInsightFixtureTestCase() {
         val annotations = myFixture.findClass("AnnotatedClass").expectAnnotations(1)
         val annotationAttributeVal = annotations.first().findAttributeValue("attributes") as PsiArrayInitializerMemberValue
         assertTextAndRange("arrayOf(OuterAnnotation.InnerAnnotation())", annotationAttributeVal)
-        assertTextAndRange("OuterAnnotation.InnerAnnotation()", annotationAttributeVal.initializers[0])
+        assertTextAndRange("InnerAnnotation()", annotationAttributeVal.initializers[0])
     }
 
 

@@ -30,15 +30,16 @@ import org.jetbrains.kotlin.asJava.classes.lazyPub
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.CallableDescriptor
 import org.jetbrains.kotlin.descriptors.ClassConstructorDescriptor
-import org.jetbrains.kotlin.descriptors.ValueParameterDescriptor
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.load.java.descriptors.JavaClassConstructorDescriptor
-import org.jetbrains.kotlin.load.java.descriptors.getDefaultValueFromAnnotation
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getNonStrictParentOfType
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
-import org.jetbrains.kotlin.resolve.calls.model.*
+import org.jetbrains.kotlin.resolve.calls.model.DefaultValueArgument
+import org.jetbrains.kotlin.resolve.calls.model.ExpressionValueArgument
+import org.jetbrains.kotlin.resolve.calls.model.ResolvedCall
+import org.jetbrains.kotlin.resolve.calls.model.VarargValueArgument
 import org.jetbrains.kotlin.resolve.descriptorUtil.declaresOrInheritsDefaultValue
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameUnsafe
 import org.jetbrains.kotlin.resolve.source.getPsi
@@ -279,11 +280,25 @@ class KtLightAnnotationForSourceEntry(
         val resolvedCall = kotlinOrigin.getResolvedCall()!!
         val callEntry = resolvedCall.valueArguments.entries.find { (param, _) -> param.name.asString() == name } ?: return null
 
-        psiAnnotationMemberValue(this, callEntry.value.arguments, callEntry)?.let {
-            return it
+        val valueArguments = callEntry.value.arguments
+        val valueArgument = valueArguments.firstOrNull()
+        val argument = valueArgument?.getArgumentExpression()
+        if (argument != null) {
+            val arrayExpected = callEntry.key?.type?.let { KotlinBuiltIns.isArray(it) } ?: false
+
+            if (arrayExpected && (argument is KtStringTemplateExpression || argument is KtConstantExpression || annotationName(argument) != null))
+                return KtLightPsiArrayInitializerMemberValue(
+                    PsiTreeUtil.findCommonParent(valueArguments.map { it.getArgumentExpression() }) as KtElement,
+                    this,
+                    { self -> valueArguments.mapNotNull { it.getArgumentExpression()?.let { ktExpressionAsAnnotationMember(self, it) } } })
+
+
+            ktExpressionAsAnnotationMember(this, argument)?.let {
+                return it
+            }
         }
+
         if (useDefault && callEntry.key.declaresOrInheritsDefaultValue()) {
-            println("default value = " + callEntry.key.getDefaultValueFromAnnotation())
             val psiElement = callEntry.key.source.getPsi()
             when (psiElement) {
                 is KtParameter ->
@@ -291,12 +306,7 @@ class KtLightAnnotationForSourceEntry(
                 is PsiAnnotationMethod ->
                     return psiElement.defaultValue
             }
-
         }
-        println("default value1 = " + callEntry.key.getDefaultValueFromAnnotation())
-        val argument = callEntry.value.arguments.firstOrNull()?.getArgumentExpression()
-        println("cant process $argument of type ${argument?.javaClass} [${kotlinOrigin.text.lineSequence().firstOrNull()}]")
-
         return null
     }
 
@@ -430,26 +440,6 @@ private fun psiReport(psiElement: PsiElement?): String {
     return "${psiElement.javaClass.canonicalName}[$text]"
 }
 
-private fun psiAnnotationMemberValue(
-    lightParent: PsiElement,
-    valueArguments: List<ValueArgument>,
-    resolvedCall: Map.Entry<ValueParameterDescriptor, ResolvedValueArgument>?
-): PsiAnnotationMemberValue? {
-    val valueArgument = valueArguments.firstOrNull()
-
-    val arrayExpected = resolvedCall?.key?.type?.let { KotlinBuiltIns.isArray(it) } ?: false
-    println("processing $valueArgument [${valueArgument?.getArgumentExpression()?.text}] arrayExpected = $arrayExpected")
-
-    val argument = valueArgument?.getArgumentExpression() ?: return null
-    if (arrayExpected && (argument is KtStringTemplateExpression || argument is KtConstantExpression || isAnnotation(argument) != null))
-        return KtLightPsiArrayInitializerMemberValue(
-            PsiTreeUtil.findCommonParent(valueArguments.map { it.getArgumentExpression() }) as KtElement,
-            lightParent,
-            { self -> valueArguments.mapNotNull { psiAnnotationMemberValue(self, listOf(it), null) } })
-
-    return ktExpressionAsAnnotationMember(lightParent, argument)
-}
-
 
 fun ktExpressionAsAnnotationMember(lightParent: PsiElement, argument: KtExpression): PsiAnnotationMemberValue? {
     val argument = unwrapCall(argument)
@@ -461,7 +451,7 @@ fun ktExpressionAsAnnotationMember(lightParent: PsiElement, argument: KtExpressi
         is KtCallExpression -> {
             val arguments = argument.valueArguments
             println("processing KtCallExpression $argument [${argument.text}] (${argument.calleeExpression}) KtCallExpression arguments:" + arguments)
-            val annotationName = isAnnotation(argument.calleeExpression)
+            val annotationName = annotationName(argument.calleeExpression)
             if (annotationName != null) {
                 return KtLightAnnotationForSourceEntry(annotationName, argument, lightParent, { TODO("not implemented") })
             }
@@ -471,11 +461,7 @@ fun ktExpressionAsAnnotationMember(lightParent: PsiElement, argument: KtExpressi
                     lightParent,
                     { self ->
                         arguments.mapNotNull {
-                            psiAnnotationMemberValue(
-                                self,
-                                listOf(it),
-                                argument.getResolvedCall()?.valueArguments?.entries?.find { (param, arg) -> arg.arguments.any { a -> a.getArgumentExpression() == it.getArgumentExpression() } }
-                            )
+                            it.getArgumentExpression()?.let { ktExpressionAsAnnotationMember(self, it) }
                         }
                     })
         }
@@ -505,7 +491,7 @@ private fun unwrapCall(callee: KtExpression): KtExpression {
     return callee
 }
 
-private fun isAnnotation(callee: KtExpression?): String? {
+private fun annotationName(callee: KtExpression?): String? {
     val callee = callee?.let { unwrapCall(it) }
 
     if (callee is KtCallExpression) {
