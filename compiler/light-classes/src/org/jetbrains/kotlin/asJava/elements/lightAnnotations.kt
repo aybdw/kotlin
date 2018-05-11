@@ -30,6 +30,7 @@ import org.jetbrains.kotlin.asJava.classes.lazyPub
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.CallableDescriptor
 import org.jetbrains.kotlin.descriptors.ClassConstructorDescriptor
+import org.jetbrains.kotlin.descriptors.ValueParameterDescriptor
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.load.java.descriptors.JavaClassConstructorDescriptor
 import org.jetbrains.kotlin.psi.*
@@ -271,21 +272,18 @@ class KtLightAnnotationForSourceEntry(
 
 
     override fun findDeclaredAttributeValue(name: String?): PsiAnnotationMemberValue? {
-        val name = name ?: run { Exception("null value call").printStackTrace(System.out); "value" }
+        val name = name ?: run { throw Exception("null value call") }
 //        kotlinOrigin.getResolvedCall()!!.valueArguments.let {
 //            println("attrubites for $name :" + it.entries.joinToString { it.key.name.asString() + " ->" + it.value.arguments.joinToString { it.getArgumentExpression()?.javaClass.toString() } })
 //        }
 
         val resolvedCall = kotlinOrigin.getResolvedCall()!!
+        val callEntry = resolvedCall.valueArguments.entries.find { (param, _) -> param.name.asString() == name }!!
 
-        val valueArguments = resolvedCall.valueArguments.entries.find { it.key.name.asString() == name }?.let {
-            it.value.arguments
-        } ?: return null
-
-        psiAnnotationMemberValue(this, valueArguments, resolvedCall)?.let {
+        psiAnnotationMemberValue(this, callEntry.value.arguments, callEntry)?.let {
             return it
         }
-        val argument = valueArguments.firstOrNull()?.getArgumentExpression()
+        val argument = callEntry.value.arguments.firstOrNull()?.getArgumentExpression()
         println("cant process $argument of type ${argument?.javaClass} [${kotlinOrigin.text.lineSequence().firstOrNull()}]")
 
         return clsDelegate.findDeclaredAttributeValue(name)?.let { wrapAnnotationValue(it) }
@@ -425,15 +423,11 @@ private fun psiReport(psiElement: PsiElement?): String {
 private fun psiAnnotationMemberValue(
     lightParent: PsiElement,
     valueArguments: List<ValueArgument>,
-    resolvedCall: ResolvedCall<out CallableDescriptor>?
+    resolvedCall: Map.Entry<ValueParameterDescriptor, ResolvedValueArgument>?
 ): PsiAnnotationMemberValue? {
     val valueArgument = valueArguments.firstOrNull()
-    val mapped = valueArgument?.let { resolvedCall?.getArgumentMapping(it) as? ArgumentMatch }
 
-    val valueParameter = mapped?.valueParameter
-    val expectedType = valueParameter?.type
-
-    val arrayExpected = expectedType?.let { KotlinBuiltIns.isArray(it) } ?: false
+    val arrayExpected = resolvedCall?.key?.type?.let { KotlinBuiltIns.isArray(it) } ?: false
     println("processing $valueArgument [${valueArgument?.getArgumentExpression()?.text}] arrayExpected = $arrayExpected")
 
     val argument = valueArgument?.getArgumentExpression() ?: return null
@@ -446,45 +440,6 @@ private fun psiAnnotationMemberValue(
     return ktExpressionAsAnnotationMember(lightParent, argument)
 }
 
-private fun getNameReference(callee: KtExpression?): KtNameReferenceExpression? {
-    if (callee is KtConstructorCalleeExpression)
-        return callee.constructorReferenceExpression as? KtNameReferenceExpression
-    return callee as? KtNameReferenceExpression
-}
-
-private fun isAnnotation(callee: KtExpression?): String? {
-    val callee = callee?.let { unwrapCall(it) }
-
-    if (callee is KtCallExpression) {
-        val resultingDescriptor = callee.getResolvedCall()?.resultingDescriptor
-        if (resultingDescriptor is JavaClassConstructorDescriptor && (resultingDescriptor.constructedClass.source.getPsi() as? PsiClass)?.isAnnotationType == true) {
-            println("callee ${callee.text} is annotation")
-            return (resultingDescriptor.constructedClass.source.getPsi() as? PsiClass)?.qualifiedName
-        } else {
-            println("callee ${callee.text} is not annotation")
-        }
-    }
-    getNameReference(callee)?.references?.forEach {
-        val resovledElement = it.resolve()
-        when (resovledElement) {
-            is PsiClass -> if (resovledElement.isAnnotationType == true)
-                return resovledElement.qualifiedName
-            is KtConstructor<*> -> {
-                val containingClassOrObject = resovledElement.getContainingClassOrObject()
-                if (containingClassOrObject.isAnnotation())
-                    return containingClassOrObject.fqName?.asString()
-            }
-        }
-    }
-    return null
-}
-
-private fun unwrapCall(callee: KtExpression): KtExpression {
-    val callee = if (callee is KtDotQualifiedExpression) {
-        callee.lastChild as? KtCallExpression ?: callee
-    } else callee
-    return callee
-}
 
 fun ktExpressionAsAnnotationMember(lightParent: PsiElement, argument: KtExpression): PsiAnnotationMemberValue? {
     val argument = unwrapCall(argument)
@@ -509,7 +464,7 @@ fun ktExpressionAsAnnotationMember(lightParent: PsiElement, argument: KtExpressi
                             psiAnnotationMemberValue(
                                 self,
                                 listOf(it),
-                                argument.getResolvedCall()
+                                argument.getResolvedCall()?.valueArguments?.entries?.find { (param, arg) -> arg.arguments.any { a -> a.getArgumentExpression() == it.getArgumentExpression() } }
                             )
                         }
                     })
@@ -522,6 +477,48 @@ fun ktExpressionAsAnnotationMember(lightParent: PsiElement, argument: KtExpressi
                     argument,
                     lightParent,
                     { self -> arguments.mapNotNull { ktExpressionAsAnnotationMember(self, it) } })
+        }
+    }
+    return null
+}
+
+private fun getNameReference(callee: KtExpression?): KtNameReferenceExpression? {
+    if (callee is KtConstructorCalleeExpression)
+        return callee.constructorReferenceExpression as? KtNameReferenceExpression
+    return callee as? KtNameReferenceExpression
+}
+
+private fun unwrapCall(callee: KtExpression): KtExpression {
+    val callee = if (callee is KtDotQualifiedExpression) {
+        callee.lastChild as? KtCallExpression ?: callee
+    } else callee
+    return callee
+}
+
+private fun isAnnotation(callee: KtExpression?): String? {
+    val callee = callee?.let { unwrapCall(it) }
+
+    if (callee is KtCallExpression) {
+        val resultingDescriptor = callee.getResolvedCall()?.resultingDescriptor
+        if (resultingDescriptor is JavaClassConstructorDescriptor && (resultingDescriptor.constructedClass.source.getPsi() as? PsiClass)?.isAnnotationType == true) {
+            println("callee ${callee.text} is annotation")
+            return (resultingDescriptor.constructedClass.source.getPsi() as? PsiClass)?.qualifiedName
+        } else {
+            println("callee ${callee.text} is not annotation")
+        }
+    }
+    getNameReference(callee)?.references?.forEach {
+        val resovledElement = it.resolve()
+        when (resovledElement) {
+            is PsiClass -> if (resovledElement.isAnnotationType == true)
+                return resovledElement.qualifiedName
+            is KtClass -> if (resovledElement.isAnnotation())
+                return resovledElement.fqName?.toString()
+            is KtConstructor<*> -> {
+                val containingClassOrObject = resovledElement.getContainingClassOrObject()
+                if (containingClassOrObject.isAnnotation())
+                    return containingClassOrObject.fqName?.asString()
+            }
         }
     }
     return null
